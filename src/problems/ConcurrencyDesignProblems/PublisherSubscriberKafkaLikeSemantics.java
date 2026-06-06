@@ -7,8 +7,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class PublisherSubscriber {
-    static class Message{
+public class PublisherSubscriberKafkaLikeSemantics {
+    static class Message {
         int messageId;
         String content;
 
@@ -25,11 +25,13 @@ public class PublisherSubscriber {
             return content;
         }
     }
-    enum SubscriptionType{
+
+    enum SubscriptionType {
         LATEST,
         EARLIEST;
     }
-    static class SubscriberMetaData{
+
+    static class SubscriberMetaData {
         int lastCommittedOffset = -1;
         AtomicBoolean isSubscribed = new AtomicBoolean(false);
 
@@ -37,8 +39,8 @@ public class PublisherSubscriber {
             return lastCommittedOffset;
         }
 
-        public void setLastCommittedOffset(int proceed) {
-            this.lastCommittedOffset += lastCommittedOffset;
+        public void setLastCommittedOffset(int offset) {
+            this.lastCommittedOffset = offset;
         }
 
         public void setSubscribed(boolean subscribed) {
@@ -46,7 +48,7 @@ public class PublisherSubscriber {
         }
     }
 
-    static class Topic{
+    static class Topic {
         String topicName;
         ConcurrentHashMap<String, SubscriberMetaData> subscriberMap;
         List<Message> queue;
@@ -57,19 +59,21 @@ public class PublisherSubscriber {
             this.queue = Collections.synchronizedList(new ArrayList<>());
         }
 
-        public SubscriberMetaData subscribe( String subscriberName, SubscriptionType subscriptionType){
+        public SubscriberMetaData subscribe(String subscriberName, SubscriptionType subscriptionType) {
             return subscriberMap.computeIfAbsent(subscriberName, key -> {
-                    var meta = new SubscriberMetaData();
-                    if (subscriptionType == SubscriptionType.LATEST) {
-                        meta.setLastCommittedOffset(queue.size());
+                        var meta = new SubscriberMetaData();
+                        if (subscriptionType == SubscriptionType.LATEST) {
+                            meta.setLastCommittedOffset(queue.size() - 1);
+                        } else {
+                            meta.setLastCommittedOffset(-1);
+                        }
+                        meta.setSubscribed(true);
+                        return meta;
                     }
-                    meta.setSubscribed(true);
-                    return meta;
-                }
             );
         }
 
-        public boolean unsubscribe(String subscriberName){
+        public boolean unsubscribe(String subscriberName) {
             subscriberMap.computeIfPresent(subscriberName, (key, value) -> {
                 value.setSubscribed(false);
                 return value;
@@ -77,45 +81,41 @@ public class PublisherSubscriber {
             return true;
         }
 
-        public void deleteSubscription(String subscriberName){
+        public void deleteSubscription(String subscriberName) {
             SubscriberMetaData metaData = subscriberMap.remove(subscriberName);
             metaData.setSubscribed(false);
         }
 
-        public List<Message> request(String subscriberName, int requests){
-            SubscriberMetaData metaData = subscriberMap.get(subscriberName);
-            int begin = metaData.lastCommittedOffset + 1;
-            int end = begin + Math.min(metaData.getLastCommittedOffset() + requests, queue.size() - 1);
+        public List<Message> request(String subscriberName, int requests) {
             List<Message> messages = new ArrayList<>();
-            for (int i = begin; i <= end; i++) {
-                if (!metaData.isSubscribed.get()) return null;
-                messages.add(queue.get(i));
-            }
-            return messages;
-        }
-
-        public boolean commit(String subscriberName, int offset){
-            SubscriberMetaData metaData = subscriberMap.get(subscriberName);
-            if (metaData == null) return false;
-            int checkpoint = metaData.lastCommittedOffset;
             subscriberMap.computeIfPresent(subscriberName, (key, value) -> {
-                if (value.isSubscribed.compareAndSet(true, true)){
-                    value.setLastCommittedOffset(offset);
+                int begin = value.lastCommittedOffset + 1;
+                int end = begin + Math.min(queue.size() - 1, requests + value.getLastCommittedOffset());
+                for (int i = begin; i <= end; i++) {
+                    messages.add(queue.get(i));
                 }
                 return value;
             });
-            return checkpoint < metaData.lastCommittedOffset;
+            return messages;
         }
 
-        public boolean offer(Message message){
+        public void commit(String subscriberName, int offset) {
+            subscriberMap.computeIfPresent(subscriberName, (key, value) -> {
+                value.setLastCommittedOffset(offset);
+                return value;
+            });
+        }
+
+        public boolean offer(Message message) {
             return queue.add(message);
         }
     }
-    interface Publisher{
+
+    interface Publisher {
         void publish(List<Record> m);
     }
 
-    static class P1 implements Publisher{
+    static class P1 implements Publisher {
         TopicController controller;
 
         public P1(TopicController controller) {
@@ -129,12 +129,13 @@ public class PublisherSubscriber {
 
     }
 
-    interface Subscriber{
+    interface Subscriber {
         List<Record> poll();
+
         void commit(Map<Topic, Integer> read);
     }
 
-    static class S1 implements Subscriber{
+    static class S1 implements Subscriber {
         String subscriberName;
         TopicController topicController;
         int batchSize;
@@ -167,17 +168,17 @@ public class PublisherSubscriber {
 
         @Override
         public void commit(Map<Topic, Integer> read) {
-            for(Map.Entry<Topic, Integer> entry:read.entrySet()){
+            for (Map.Entry<Topic, Integer> entry : read.entrySet()) {
                 topicController.commit(subscriberName, entry.getKey(), entry.getValue());
                 topicMap.put(entry.getKey(), entry.getValue());
             }
         }
 
-        public void process(){
-            while(isRunning.get()) {
+        public void process() {
+            while (isRunning.get()) {
                 Map<Topic, Integer> read = new HashMap<>(topicMap);
                 for (Record r : poll()) {
-                    if (!isRunning.get()){
+                    if (!isRunning.get()) {
                         commit(read);
                         break;
                     }
@@ -189,7 +190,8 @@ public class PublisherSubscriber {
                 commit(read);
             }
         }
-        public void shutdown(){
+
+        public void shutdown() {
             isRunning.set(false);
             executorService.shutdownNow();
             try {
@@ -200,7 +202,8 @@ public class PublisherSubscriber {
             }
         }
     }
-    static class Record{
+
+    static class Record {
         Topic topic;
         Message message;
 
@@ -210,7 +213,7 @@ public class PublisherSubscriber {
         }
     }
 
-    static class TopicController{
+    static class TopicController {
         ConcurrentHashMap<String, List<String>> topicMetaData;
         ConcurrentHashMap<String, Topic> topics;
 
@@ -221,8 +224,8 @@ public class PublisherSubscriber {
 
         public Map<Topic, Integer> subscribe(String subscriberName, List<String> topic, SubscriptionType subscriptionType) {
             Map<Topic, Integer> map = new HashMap<>();
-            topicMetaData.computeIfPresent(subscriberName, (k,v) -> {
-                for(String tp:topic){
+            topicMetaData.computeIfPresent(subscriberName, (k, v) -> {
+                for (String tp : topic) {
                     if (!v.contains(tp)) throw new RuntimeException();
                     Topic t = topics.get(tp);
                     map.put(t, t.subscribe(subscriberName, subscriptionType).lastCommittedOffset);
@@ -233,8 +236,8 @@ public class PublisherSubscriber {
         }
 
         public void unsubscribe(String subscriberName) {
-            topicMetaData.computeIfPresent(subscriberName, (k,v) -> {
-                for(String tp:v) {
+            topicMetaData.computeIfPresent(subscriberName, (k, v) -> {
+                for (String tp : v) {
                     topics.computeIfPresent(tp, (key, value) -> {
                         value.subscriberMap.compute(subscriberName, (ke, vl) -> {
                             vl.isSubscribed.set(false);
@@ -247,10 +250,11 @@ public class PublisherSubscriber {
             });
         }
 
-        public void createTopic(String topicName){
+        public void createTopic(String topicName) {
             topics.computeIfAbsent(topicName, x -> new Topic(topicName));
         }
-        public void deleteTopic(String topicName){
+
+        public void deleteTopic(String topicName) {
             topics.remove(topicName);
         }
 
@@ -260,8 +264,8 @@ public class PublisherSubscriber {
             List<Record> records = new ArrayList<>();
             if (tp == null) return null;
             int count = 0;
-            for(String t:tp){
-                int size = Math.min(rand.nextInt(batchSize+1), batchSize-count);
+            for (String t : tp) {
+                int size = Math.min(rand.nextInt(batchSize + 1), batchSize - count);
                 if (size > 0) {
                     topics.get(t).request(subscriberName, size).forEach(m -> records.add(new Record(topics.get(t), m)));
                 }
@@ -273,14 +277,14 @@ public class PublisherSubscriber {
 
         public void commit(String subscriberName, Topic topic, Integer offset) {
             topics.computeIfPresent(topic.topicName, (k, v) -> {
-                if (!v.commit(subscriberName, offset)) throw new RuntimeException("unable to commit");
+                v.commit(subscriberName, offset);
                 return v;
             });
         }
 
-        public void publishRecord(List<Record> records){
-            for(Record r:records){
-                topics.compute(r.topic.topicName, (k,v) -> {
+        public void publishRecord(List<Record> records) {
+            for (Record r : records) {
+                topics.compute(r.topic.topicName, (k, v) -> {
                     if (v == null) throw new RuntimeException("topic is absent");
                     v.offer(r.message);
                     return v;

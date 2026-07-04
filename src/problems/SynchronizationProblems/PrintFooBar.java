@@ -168,3 +168,43 @@ class FooBarWithWithConditionVariables{
         }
     }
 }
+
+class FooBar{
+    private static final Semaphore fooPermit = new Semaphore(1), barPermit = new Semaphore(0);
+    public static void main(String[] args) throws InterruptedException {
+        Thread t1 = new Thread(() -> {
+            for(int i=0; i<6; i++)
+                foo();
+            }
+        );
+        Thread t2 = new Thread(() -> {
+            for(int i=0; i<6; i++)
+                bar();
+        }
+        );
+        t1.start();
+        t2.start();
+        t1.join();
+        t2.join();
+    }
+
+    private static void bar() {
+        try {
+            barPermit.acquire();
+            System.out.print("bar");
+            fooPermit.release();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void foo() {
+        try {
+            fooPermit.acquire();
+            System.out.print("foo");
+            barPermit.release();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}

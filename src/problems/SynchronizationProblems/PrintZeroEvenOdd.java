@@ -3,6 +3,7 @@ package problems.SynchronizationProblems;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -159,6 +160,67 @@ class ZeroEvenOddWithConditionVariable{
         }
         finally {
             lock.unlock();
+        }
+    }
+}
+
+class ZeroEvenOdd{
+    private static Lock lock = new ReentrantLock();
+    private static Condition condition = lock.newCondition();
+    private static int count = 0;
+    private static boolean isZero = true;
+    private static final int n = 6;
+    public static void main(String[] args) throws InterruptedException {
+        Thread zero = new Thread(ZeroEvenOdd::printZero);
+        Thread odd = new Thread(() -> {
+            printNumber(true);
+        });
+        Thread even = new Thread(() -> {
+            printNumber(false);
+        });
+        zero.start();
+        odd.start();
+        even.start();
+        zero.join();
+        odd.join();
+        even.join();;
+    }
+
+    private static void printNumber(boolean odd) {
+        int times = odd ? (n+1)/2 : n/2;
+        for(int i=0; i<times; i++) {
+            lock.lock();
+            try {
+                while (isZero || (count%2 == 0) == odd) {
+                    condition.await();
+                }
+                System.out.print(count);
+                isZero = true;
+                condition.signalAll();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
+    private static void printZero() {
+        for(int i=0; i<n; i++) {
+            lock.lock();
+            try {
+                while (!isZero) {
+                    condition.await();
+                }
+                System.out.print(0);
+                isZero = false;
+                count++;
+                condition.signalAll();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                lock.unlock();
+            }
         }
     }
 }

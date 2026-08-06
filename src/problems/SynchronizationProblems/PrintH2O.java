@@ -13,31 +13,31 @@ public class PrintH2O {
     private static void printH2OWithBarrier(ExecutorService executors) {
         H2OWithBarrier obj = new H2OWithBarrier();
         executors.submit(() -> {
-            obj.hydrogen();
+            obj.addHydrogen();;
         });
         executors.submit(() -> {
-            obj.oxygen();
+            obj.addOxygen();
         });
         executors.submit(() -> {
-            obj.oxygen();
+            obj.addOxygen();
         });
         executors.submit(() -> {
-            obj.hydrogen();
+            obj.addHydrogen();
         });
         executors.submit(() -> {
-            obj.hydrogen();
+            obj.addHydrogen();
         });
         executors.submit(() -> {
-            obj.hydrogen();
+            obj.addHydrogen();
         });
         executors.submit(() -> {
-            obj.oxygen();
+            obj.addOxygen();
         });
         executors.submit(() -> {
-            obj.hydrogen();
+            obj.addHydrogen();
         });
         executors.submit(() -> {
-            obj.hydrogen();
+            obj.addHydrogen();
         });
     }
 
@@ -46,21 +46,22 @@ class H2OWithBarrier{
     private Semaphore hydrogenPermit = new Semaphore(2);
     private Semaphore oxygenPermit = new Semaphore(1);
     private CyclicBarrier barrier = new CyclicBarrier(3, () -> {
-        System.out.println("Water molecule created!!");
+        System.out.println("Water molecule formed!");
         hydrogenPermit.release(2);
-        oxygenPermit.release();
+        oxygenPermit.release(1);
     });
 
-    public void hydrogen(){
-        try{
+    public void addHydrogen() {
+        try {
             hydrogenPermit.acquire();
             barrier.await();
         } catch (BrokenBarrierException | InterruptedException e) {
             throw new RuntimeException(e);
         }
     }
-    public void oxygen(){
-        try{
+
+    public void addOxygen() {
+        try {
             oxygenPermit.acquire();
             barrier.await();
         } catch (BrokenBarrierException | InterruptedException e) {

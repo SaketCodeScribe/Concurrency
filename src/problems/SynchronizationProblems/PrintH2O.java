@@ -1,6 +1,7 @@
 package problems.SynchronizationProblems;
 
 import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class PrintH2O {
     public static void main(String[] args) throws InterruptedException {
@@ -56,7 +57,7 @@ class H2OWithBarrier{
             hydrogenPermit.acquire();
             barrier.await();
         } catch (BrokenBarrierException | InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -65,50 +66,55 @@ class H2OWithBarrier{
             oxygenPermit.acquire();
             barrier.await();
         } catch (BrokenBarrierException | InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
         }
     }
 }
 
 class H2OWithSemaphores{
-    private Semaphore hydrogenPermit = new Semaphore(0);
-    private Semaphore oxygenPermit = new Semaphore(0);
-    private Semaphore mutex = new Semaphore(1);
-    private int hydrogenCnt = 0;
-    private int oxygenCnt = 0;
+    private final Semaphore hydrogenPermit = new Semaphore(2);
+    private final Semaphore oxygenPermit = new Semaphore(1);
+    private final ReentrantLock mutex = new ReentrantLock();
+    private int hydrogen, oxygen;
 
-    public void hydrogen(Runnable task) throws InterruptedException {
-        mutex.acquire();
-        hydrogenCnt++;
-        try{
-            if (hydrogenCnt > 1 && oxygenCnt > 0){
-                hydrogenCnt -= 2;
-                hydrogenPermit.release(2);
-                oxygenCnt--;
-                oxygenPermit.release();
-            }
-            mutex.release();
+    public void addHydrogen() {
+        try {
             hydrogenPermit.acquire();
-            task.run();
+            mutex.lock();
+            try {
+                hydrogen++;
+                if (hydrogen > 1 && oxygen > 0) {
+                    hydrogen -= 2;
+                    oxygen--;
+                    System.out.println("water formed");
+                    oxygenPermit.release(1);
+                    hydrogenPermit.release(2);
+                }
+            } finally {
+                mutex.unlock();
+            }
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
         }
     }
-    public void oxygen(Runnable task) throws InterruptedException {
-        mutex.acquire();
-        oxygenCnt++;
-        try{
-            if (hydrogenCnt > 1 && oxygenCnt > 0){
-                hydrogenCnt -= 2;
-                hydrogenPermit.release(2);
-                oxygenCnt--;
-                oxygenPermit.release();
-            }
-            mutex.release();
+    public void addOxygen() {
+        try {
             oxygenPermit.acquire();
-            task.run();
+            mutex.lock();
+            try {
+                oxygen++;
+                if (hydrogen > 1 && oxygen > 0) {
+                    hydrogen -= 2;
+                    oxygen--;
+                    System.out.println("water formed");
+                    oxygenPermit.release(1);
+                    hydrogenPermit.release(2);
+                }
+            } finally {
+                mutex.unlock();
+            }
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
         }
     }
 }

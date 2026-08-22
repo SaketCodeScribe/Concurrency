@@ -1,124 +1,78 @@
 package problems.SynchronizationProblems;
 
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class ProblemUnisexBathroom {
-}
+    private final Lock lock = new ReentrantLock(true);
+    private final Condition canMaleEnter = lock.newCondition();
+    private final Condition canFemaleEnter = lock.newCondition();
+    private char switchGender = 0;
+    private final int capacity;
+    private int maleCnt, femaleCnt, maleWaiting, femaleWaiting;
 
-enum Person{
-    MALE,
-    FEMALE;
-}
-
-class ConcurrentBathroom{
-    private int maleCount = 0;
-    private int femaleCount = 0;
-    private int currentOccupants = 0;
-    private Lock lock = new ReentrantLock();
-    private Semaphore restroom = new Semaphore(1);
-    private Condition maleCondition = lock.newCondition();
-    private Condition femaleCondition = lock.newCondition();
-    private Semaphore serviceQueue = new Semaphore(1, true);
-    private int capacity;
-
-    public ConcurrentBathroom(int capacity){
+    public ProblemUnisexBathroom(int capacity) {
         this.capacity = capacity;
     }
 
-    private void maleAcquire(){
+    public void useWashRoom(char gender) throws InterruptedException {
+        enter(gender);
         try {
-            serviceQueue.acquire();
-            lock.lock();
-            try{
-                maleCount++;
-                if (maleCount == 1){
-                    restroom.acquire();
-                }
-                while(currentOccupants >= capacity){
-                    maleCondition.await();
-                }
-                currentOccupants++;
-                serviceQueue.release();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        finally {
-            lock.unlock();
-        }
-    }
-
-    private void maleRelease(){
-        lock.lock();
-        try {
-            maleCount--;
-            currentOccupants--;
-            if (currentOccupants < capacity) {
-                maleCondition.signal();
-            }
-            if (maleCount == 0) {
-                restroom.release();
-            }
+            System.out.println(gender + " using bathroom");
+            Thread.sleep(1000);
         } finally {
-            lock.unlock();
-        }
-    }
-    private void femaleAcquire(){
-        try {
-            serviceQueue.acquire();
-            lock.lock();
-            try{
-                femaleCount++;
-                if (femaleCount == 1){
-                    restroom.acquire();
-                }
-                while(currentOccupants >= capacity){
-                    femaleCondition.await();
-                }
-                currentOccupants++;
-                serviceQueue.release();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        finally {
-            lock.unlock();
+            leave(gender);
         }
     }
 
-    private void femaleRelease(){
+    private void enter(char gender) throws InterruptedException {
         lock.lock();
-        try{
-            femaleCount--;
-            currentOccupants--;
-            if (currentOccupants < capacity) {
-                femaleCondition.signal();
+        try {
+            if (gender == 'M') {
+                maleWaiting++;
+                while (femaleCnt > 0 || maleCnt == this.capacity || switchGender == 'F') {
+                    canMaleEnter.await();
+                }
+                maleWaiting--;
+                maleCnt++;
+            } else {
+                femaleWaiting++;
+                while (maleCnt > 0 || femaleCnt == this.capacity || switchGender == 'M') {
+                    canFemaleEnter.await();
+                }
+                femaleWaiting--;
+                femaleCnt++;
             }
-            if (femaleCount == 0){
-                restroom.release();
-            }
+        } catch (InterruptedException e) {
+            if (gender == 'M') maleWaiting--;
+            if (gender == 'F') femaleWaiting--;
+            Thread.currentThread().interrupt();
+            throw e;
         } finally {
             lock.unlock();
         }
     }
 
-    public void useWashroom(Person person, Runnable task){
-        if (person == Person.MALE){
-            maleAcquire();
-            task.run();
-            maleRelease();
-        }
-        else{
-            femaleAcquire();
-            task.run();
-            femaleRelease();
+    private void leave(char gender) {
+        lock.lock();
+        try {
+            if (gender == 'M') maleCnt--;
+            else femaleCnt--;
+            if (maleCnt == 0 && femaleCnt == 0) {
+                if (gender == 'F' && maleWaiting > 0) {
+                    canMaleEnter.signalAll();
+                    switchGender = 'M';
+                } else if (gender == 'M' && femaleWaiting > 0) {
+                    canFemaleEnter.signalAll();
+                    switchGender = 'F';
+                } else if (gender == 'M' && maleWaiting > 0) canMaleEnter.signalAll();
+                else if (gender == 'F' && femaleWaiting > 0) canFemaleEnter.signalAll();
+                else switchGender = 0;
+            } else if (gender == 'M' && femaleWaiting == 0 && maleWaiting > 0 && maleCnt < this.capacity) canMaleEnter.signalAll();
+            else if (gender == 'F' && maleWaiting == 0 && femaleWaiting > 0 && femaleCnt < this.capacity) canFemaleEnter.signalAll();
+        } finally {
+            lock.unlock();
         }
     }
 }

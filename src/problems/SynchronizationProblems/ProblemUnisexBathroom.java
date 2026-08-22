@@ -71,7 +71,7 @@ public class ProblemUnisexBathroom {
                     canFemaleEnter.signalAll();
                     switchGender = Gender.Female;
                 } else if (gender == Gender.Male && maleWaiting > 0) canMaleEnter.signalAll();
-                else if (femaleWaiting > 0) canFemaleEnter.signalAll();
+                else if (gender == Gender.Female && femaleWaiting > 0) canFemaleEnter.signalAll();
                 else switchGender = null;
             } else if (gender == Gender.Male && femaleWaiting == 0 && maleWaiting > 0 && maleCnt < this.capacity) canMaleEnter.signalAll();
             else if (gender == Gender.Female && maleWaiting == 0 && femaleWaiting > 0 && femaleCnt < this.capacity) canFemaleEnter.signalAll();
